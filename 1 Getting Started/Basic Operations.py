@@ -1,4 +1,5 @@
 import boto3
+import time
 from boto3.dynamodb.conditions import Key, Attr
 
 
@@ -30,8 +31,10 @@ def create_table():
             }
         ],
         ProvisionedThroughput={
-            'ReadCapacityUnits': 1,
-            'WriteCapacityUnits': 1}
+            'ReadCapacityUnits': 5,
+            'WriteCapacityUnits': 5
+        },
+        BillingMode='PROVISIONED'
     )
     table.wait_until_exists()
     return table
@@ -101,6 +104,61 @@ def scan_table():
     return response['Items']
 
 
+def create_index():
+    return boto3.client('dynamodb').update_table(
+        TableName="Music",
+        AttributeDefinitions=[
+            {
+                'AttributeName': 'Year',
+                'AttributeType': 'N'
+            },
+            {
+                'AttributeName': 'Movie',
+                'AttributeType': 'S'
+            }
+        ],
+        GlobalSecondaryIndexUpdates=[
+            {
+                "Create": {
+                    "IndexName": "YearIndex",
+                    "KeySchema": [
+                        {
+                            "AttributeName": 'Year',
+                            "KeyType": "HASH"
+                        },
+                        {
+                            "AttributeName": "Movie",
+                            "KeyType": "RANGE"
+                        }
+                    ],
+                    "Projection": {
+                        "ProjectionType": "ALL"
+                    },
+                    "ProvisionedThroughput": {
+                        "ReadCapacityUnits": 5,
+                        "WriteCapacityUnits": 5
+                    }
+                }
+            }
+        ]
+    )
+
+
+def query_index():
+    while True:
+        if not table.global_secondary_indexes or table.global_secondary_indexes[0]['IndexStatus'] != 'ACTIVE':
+            print('Waiting for index to backfill...')
+            time.sleep(30)
+            table.reload()
+        else:
+            break
+    response = table.query(
+        IndexName="YearIndex",
+        KeyConditionExpression=Key('Year').eq(2015)
+    )
+    return response['Items']
+
+
 def delete_item():
     return table.delete_item(
         Key={
@@ -124,5 +182,7 @@ if __name__ == '__main__':
     print('Batch write', batch_write())
     print('Scanned the table', scan_table())
     print('Query the table', query_table())
+    print('Create an index', create_index())
+    print('Query the index', query_index())
     print('Deleting an item from the table', delete_item())
     print("Deleted table succesfully", delete_table())
